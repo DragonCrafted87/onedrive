@@ -36,11 +36,17 @@ final class Config
 	private long[string] longValues;
 	// Compile time regex - this does not change
 	public auto configRegex = ctRegex!(`^(\w+)\s*=\s*"(.*)"\s*$`);
+	// Default directory permission mode
+	public long defaultDirectoryPermissionMode = 700;
+	public int configuredDirectoryPermissionMode;
+	// Default file permission mode
+	public long defaultFilePermissionMode = 600;
+	public int configuredFilePermissionMode;
 	
 	this(string confdirOption)
 	{
 		// default configuration - entries in config file ~/.config/onedrive/config
-		// an entry here means it can be set via the config file if there is a coresponding read and set in update_from_args()
+		// an entry here means it can be set via the config file if there is a coresponding entry, read from config and set via update_from_args()
 		stringValues["sync_dir"] = defaultSyncDir;
 		stringValues["skip_file"] = defaultSkipFile;
 		stringValues["skip_dir"] = defaultSkipDir;
@@ -102,8 +108,14 @@ final class Config
 		//     AD Endpoint:    https://login.chinacloudapi.cn
 		//     Graph Endpoint: 	https://microsoftgraph.chinacloudapi.cn
 		stringValues["azure_ad_endpoint"] = "";
+		// Support single-tenant applications that are not able to use the "common" multiplexer
+		stringValues["azure_tenant_id"] = "common";
 		// Allow enable / disable of the syncing of OneDrive Business Shared Folders via configuration file
 		boolValues["sync_business_shared_folders"] = false;
+		// Configure the default folder permission attributes for newly created folders
+		longValues["sync_dir_permissions"] = defaultDirectoryPermissionMode;
+		// Configure the default file permission attributes for newly created file
+		longValues["sync_file_permissions"] = defaultFilePermissionMode;
 		
 		// DEVELOPER OPTIONS 
 		// display_memory = true | false
@@ -179,7 +191,13 @@ final class Config
 		}
 		
 		// Config directory options all determined
-		if (!exists(configDirName)) mkdirRecurse(configDirName);
+		if (!exists(configDirName)) {
+			// create the directory
+			mkdirRecurse(configDirName);
+			// Configure the applicable permissions for the folder
+			configDirName.setAttributes(returnRequiredDirectoryPermisions());
+		}
+		
 		// configDirName has a trailing /
 		log.vlog("Using 'user' Config Dir: ", configDirName);
 		log.vlog("Using 'system' Config Dir: ", systemConfigDirName);
@@ -249,6 +267,7 @@ final class Config
 	{
 		// Add additional options that are NOT configurable via config file
 		stringValues["create_directory"]  = "";
+		stringValues["create_share_link"] = "";
 		stringValues["destination_directory"] = "";
 		stringValues["get_file_link"]     = "";
 		stringValues["get_o365_drive_id"] = "";
@@ -293,6 +312,9 @@ final class Config
 				"create-directory",
 					"Create a directory on OneDrive - no sync will be performed.",
 					&stringValues["create_directory"],
+				"create-share-link",
+					"Create a shareable link for an existing file on OneDrive",
+					&stringValues["create_share_link"],
 				"debug-https", 
 					"Debug OneDrive HTTPS communication.", 
 					&boolValues["debug_https"],
@@ -540,8 +562,29 @@ final class Config
 						//  --skip-file ARG
 						//  --skip-dir ARG
 						if (key == "sync_dir") configFileSyncDir = c.front.dup;
-						if (key == "skip_file") configFileSkipFile = c.front.dup;
-						if (key == "skip_dir") configFileSkipDir = c.front.dup;
+						if (key == "skip_file") {
+							// Handle multiple entries of skip_file
+							if (configFileSkipFile.empty) {
+								// currently no entry exists
+								configFileSkipFile = c.front.dup;
+							} else {
+								// add to existing entry
+								configFileSkipFile = configFileSkipFile ~ "|" ~ to!string(c.front.dup);
+								setValueString("skip_file", configFileSkipFile);
+							}
+						}
+						if (key == "skip_dir") {
+							// Handle multiple entries of skip_dir
+							if (configFileSkipDir.empty) {
+								// currently no entry exists
+								configFileSkipDir = c.front.dup;
+							} else {
+								// add to existing entry
+								configFileSkipDir = configFileSkipDir ~ "|" ~ to!string(c.front.dup);
+								setValueString("skip_dir", configFileSkipDir);
+							}
+						}
+						
 						// Azure AD Configuration
 						if (key == "azure_ad_endpoint") {
 							string azureConfigValue = c.front.dup;
@@ -584,6 +627,59 @@ final class Config
 		}
 		return true;
 	}
+	
+	void configureRequiredDirectoryPermisions() {
+		// return the directory permission mode required
+		// - return octal!defaultDirectoryPermissionMode; ... cant be used .. which is odd 
+		// Error: variable defaultDirectoryPermissionMode cannot be read at compile time
+		if (getValueLong("sync_dir_permissions") != defaultDirectoryPermissionMode) {
+			// return user configured permissions as octal integer
+			string valueToConvert = to!string(getValueLong("sync_dir_permissions"));
+			auto convertedValue = parse!long(valueToConvert, 8);
+			configuredDirectoryPermissionMode = to!int(convertedValue);
+		} else {
+			// return default as octal integer
+			string valueToConvert = to!string(defaultDirectoryPermissionMode);
+			auto convertedValue = parse!long(valueToConvert, 8);
+			configuredDirectoryPermissionMode = to!int(convertedValue);
+		}
+	}
+	
+	void configureRequiredFilePermisions() {
+		// return the file permission mode required
+		// - return octal!defaultFilePermissionMode; ... cant be used .. which is odd 
+		// Error: variable defaultFilePermissionMode cannot be read at compile time
+		if (getValueLong("sync_file_permissions") != defaultFilePermissionMode) {
+			// return user configured permissions as octal integer
+			string valueToConvert = to!string(getValueLong("sync_file_permissions"));
+			auto convertedValue = parse!long(valueToConvert, 8);
+			configuredFilePermissionMode = to!int(convertedValue);
+		} else {
+			// return default as octal integer
+			string valueToConvert = to!string(defaultFilePermissionMode);
+			auto convertedValue = parse!long(valueToConvert, 8);
+			configuredFilePermissionMode = to!int(convertedValue);
+		}
+	}
+	
+	int returnRequiredDirectoryPermisions() {
+		// read the configuredDirectoryPermissionMode and return
+		if (configuredDirectoryPermissionMode == 0) {
+			// the configured value is zero, this means that directories would get
+			// values of d---------
+			configureRequiredDirectoryPermisions();
+		}
+		return configuredDirectoryPermissionMode;
+	}
+	
+	int returnRequiredFilePermisions() {
+		// read the configuredFilePermissionMode and return
+		if (configuredFilePermissionMode == 0) {
+			// the configured value is zero
+			configureRequiredFilePermisions();
+		}
+		return configuredFilePermissionMode;
+	}
 }
 
 void outputLongHelp(Option[] opt)
@@ -591,7 +687,9 @@ void outputLongHelp(Option[] opt)
 	auto argsNeedingOptions = [
 		"--confdir",
 		"--create-directory",
+		"--create-share-link",
 		"--destination-directory",
+		"--get-file-link",
 		"--get-O365-drive-id",
 		"--log-dir",
 		"--min-notify-changes",

@@ -2,6 +2,79 @@
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+## 2.4.7 - 2020-11-09
+### Fixed
+*   Fix debugging output for /delta changes available queries
+*   Fix logging output for modification comparison source data
+*   Fix Business Shared Folder handling to process only Shared Folders, not individually shared files
+*   Fix cleanup dryrun shm and wal files if they exist
+*   Fix --list-shared-folders to only show folders
+*   Fix to check for the presence of .nosync when processing DB entries
+*   Fix skip_dir matching when using --resync
+*   Fix uploading data to shared business folders when using --upload-only
+*   Fix to merge contents of SQLite WAL file into main database file on sync completion
+*   Fix to check if localModifiedTime is >= than item.mtime to avoid re-upload for equal modified time
+*   Fix to correctly set config directory permissions at first start
+
+### Added
+*   Added environment variable to allow easy HTTPS debug in docker
+*   Added environment variable to allow download-only mode in Docker
+*   Implement Feature: Allow config to specify a tenant id for non-multi-tenant applications
+*   Implement Feature: Adding support for authentication with single tenant custom applications
+*   Implement Feature: Configure specific File and Folder Permissions
+
+### Updated
+*   Updated documentation (readme.md, install.md, usage.md, bug_report.md)
+
+## 2.4.6 - 2020-10-04
+### Fixed
+*   Fix flagging of remaining free space when value is being restricted
+*   Fix --single-directory path handling when path does not exist locally
+*   Fix checking for 'Icon' path as no longer listed by Microsoft as an invalid file or folder name
+*   Fix removing child items on OneDrive when parent item responds with access denied
+*   Fix to handle deletion events for files when inotify events are missing
+*   Fix uninitialised value error as reported by valgrind
+*   Fix to handle deletion events for directories when inotify events are missing
+
+### Added
+*   Implement Feature: Create shareable link
+*   Implement Feature: Support wildcard within sync_list entries
+*   Implement Feature: Support negative patterns in sync_list for fine grained exclusions
+*   Implement Feature: Multiple skip_dir & skip_file configuration rules
+*   Add GUI notification to advise users when the client needs to be reauthenticated
+
+### Updated
+*   Updated documentation (readme.md, install.md, usage.md, bug_report.md)
+
+## 2.4.5 - 2020-08-13
+### Fixed
+*   Fixed fish auto completions installation destination
+
+## 2.4.4 - 2020-08-11
+### Fixed
+*   Fix 'skip_dir' & 'skip_file' pattern matching to ensure correct matching is performed
+*   Fix 'skip_dir' & 'skip_file' so that each directive is only used against directories or files as requried in --monitor
+*   Fix client hand when attempting to sync a Unix pipe file
+*   Fix --single-directory & 'sync_list' performance 
+*   Fix erroneous 'return' statements which could prematurely end processing all changes returned from OneDrive
+*   Fix segfault when attempting to perform a comparison on an inotify event when determining if event path is directory or file
+*   Fix handling of Shared Folders to ensure these are checked against 'skip_dir' entries
+*   Fix 'Skipping uploading this new file as parent path is not in the database' when uploading to a Personal Shared Folder
+*   Fix how available free space is tracked when uploading files to OneDrive and Shared Folders
+*   Fix --single-directory handling of parent path matching if path is being seen for first time
+
+### Added
+*   Added Fish auto completions
+
+### Updated
+*   Increase maximum individual file size to 100GB due to Microsoft file limit increase
+*   Update Docker build files and align version of compiler across all Docker builds
+*   Update Docker documentation
+*   Update NixOS build information
+*   Update the 'Processing XXXX' output to display the full path
+*   Update logging output when a sync starts and completes when using --monitor
+*   Update Office 365 / SharePoint site search query and response if query return zero match
+
 ## 2.4.3 - 2020-06-29
 ### Fixed
 *   Check if symbolic link is relative to location path

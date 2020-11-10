@@ -138,18 +138,34 @@ final class OneDriveApi
 			.debugResponse = true;
 		}
 		
+		// Configure tenant id value, if 'azure_tenant_id' is configured,
+		// otherwise use the "common" multiplexer
+		string tenantId = "common";
+		if (cfg.getValueString("azure_tenant_id") != "") {
+			// Use the value entered by the user
+			tenantId = cfg.getValueString("azure_tenant_id");
+		}
+
 		// Configure Azure AD endpoints if 'azure_ad_endpoint' is configured
 		string azureConfigValue = cfg.getValueString("azure_ad_endpoint");
 		switch(azureConfigValue) {
 			case "":
-				log.log("Configuring Global Azure AD Endpoints");
+				if (tenantId == "common") {
+					log.log("Configuring Global Azure AD Endpoints");
+				} else {
+					log.log("Configuring Global Azure AD Endpoints - Single Tenant Application");
+				}
+				// Authentication
+				authUrl = globalAuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/v2.0/authorize";
+				redirectUrl = globalAuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/nativeclient";
+				tokenUrl = globalAuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/v2.0/token";
 				break;
 			case "USL4":
 				log.log("Configuring Azure AD for US Government Endpoints");
 				// Authentication
-				authUrl = usl4AuthEndpoint ~ "/common/oauth2/v2.0/authorize";
-				redirectUrl = usl4AuthEndpoint ~ "/common/oauth2/nativeclient";
-				tokenUrl = usl4AuthEndpoint ~ "/common/oauth2/v2.0/token";
+				authUrl = usl4AuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/v2.0/authorize";
+				redirectUrl = usl4AuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/nativeclient";
+				tokenUrl = usl4AuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/v2.0/token";
 				// Drive Queries
 				driveUrl = usl4GraphEndpoint ~ "/v1.0/me/drive";
 				driveByIdUrl = usl4GraphEndpoint ~ "/v1.0/drives/";					
@@ -165,9 +181,9 @@ final class OneDriveApi
 			case "USL5":
 				log.log("Configuring Azure AD for US Government Endpoints (DOD)");
 				// Authentication
-				authUrl = usl5AuthEndpoint ~ "/common/oauth2/v2.0/authorize";
-				redirectUrl = usl5AuthEndpoint ~ "/common/oauth2/nativeclient";
-				tokenUrl = usl5AuthEndpoint ~ "/common/oauth2/v2.0/token";
+				authUrl = usl5AuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/v2.0/authorize";
+				redirectUrl = usl5AuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/nativeclient";
+				tokenUrl = usl5AuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/v2.0/token";
 				// Drive Queries
 				driveUrl = usl5GraphEndpoint ~ "/v1.0/me/drive";
 				driveByIdUrl = usl5GraphEndpoint ~ "/v1.0/drives/";					
@@ -183,9 +199,9 @@ final class OneDriveApi
 			case "DE":
 				log.log("Configuring Azure AD Germany");
 				// Authentication
-				authUrl = deAuthEndpoint ~ "/common/oauth2/v2.0/authorize";
-				redirectUrl = deAuthEndpoint ~ "/common/oauth2/nativeclient";
-				tokenUrl = deAuthEndpoint ~ "/common/oauth2/v2.0/token";
+				authUrl = deAuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/v2.0/authorize";
+				redirectUrl = deAuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/nativeclient";
+				tokenUrl = deAuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/v2.0/token";
 				// Drive Queries
 				driveUrl = deGraphEndpoint ~ "/v1.0/me/drive";
 				driveByIdUrl = deGraphEndpoint ~ "/v1.0/drives/";					
@@ -201,9 +217,9 @@ final class OneDriveApi
 			case "CN":
 				log.log("Configuring AD China operated by 21Vianet");
 				// Authentication
-				authUrl = cnAuthEndpoint ~ "/common/oauth2/v2.0/authorize";
-				redirectUrl = cnAuthEndpoint ~ "/common/oauth2/nativeclient";
-				tokenUrl = cnAuthEndpoint ~ "/common/oauth2/v2.0/token";
+				authUrl = cnAuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/v2.0/authorize";
+				redirectUrl = cnAuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/nativeclient";
+				tokenUrl = cnAuthEndpoint ~ "/" ~ tenantId ~ "/oauth2/v2.0/token";
 				// Drive Queries
 				driveUrl = cnGraphEndpoint ~ "/v1.0/me/drive";
 				driveByIdUrl = cnGraphEndpoint ~ "/v1.0/drives/";					
@@ -420,6 +436,16 @@ final class OneDriveApi
 		return get(sharedWithMe);
 	}
 	
+	// https://docs.microsoft.com/en-us/onedrive/developer/rest-api/api/drive_get
+	JSONValue getDriveQuota(const(char)[] driveId)
+	{
+		checkAccessTokenExpired();
+		const(char)[] url;
+		url = driveByIdUrl ~ driveId ~ "/";
+		url ~= "?select=quota";
+		return get(url);
+	}
+	
 	// https://docs.microsoft.com/en-us/onedrive/developer/rest-api/api/driveitem_delta
 	JSONValue viewChangesByItemId(const(char)[] driveId, const(char)[] id, const(char)[] deltaLink)
 	{
@@ -469,7 +495,11 @@ final class OneDriveApi
 		scope(failure) {
 			if (exists(saveToPath)) remove(saveToPath);
 		}
-		mkdirRecurse(dirName(saveToPath));
+		// Create the directory
+		string newPath = dirName(saveToPath);
+		mkdirRecurse(newPath);
+		// Configure the applicable permissions for the folder
+		newPath.setAttributes(cfg.returnRequiredDirectoryPermisions());
 		const(char)[] url = driveByIdUrl ~ driveId ~ "/items/" ~ id ~ "/content?AVOverride=1";
 		download(url, saveToPath, fileSize);
 	}
@@ -557,7 +587,6 @@ final class OneDriveApi
 		return get(url);
 	}
 		
-	
 	// Return the requested details of the specified id
 	// https://docs.microsoft.com/en-us/onedrive/developer/rest-api/api/driveitem_get
 	JSONValue getFileDetails(const(char)[] driveId, const(char)[] id)
@@ -567,6 +596,17 @@ final class OneDriveApi
 		url = driveByIdUrl ~ driveId ~ "/items/" ~ id;
 		url ~= "?select=size,malware,file,webUrl";
 		return get(url);
+	}
+	
+	// Create an anonymous read-only shareable link for an existing file on OneDrive
+	// https://docs.microsoft.com/en-us/onedrive/developer/rest-api/api/driveitem_createlink
+	JSONValue createShareableLink(const(char)[] driveId, const(char)[] id, JSONValue accessScope)
+	{
+		checkAccessTokenExpired();
+		const(char)[] url;
+		url = driveByIdUrl ~ driveId ~ "/items/" ~ id ~ "/createLink";
+		http.addRequestHeader("Content-Type", "application/json");		
+		return post(url, accessScope.toString());
 	}
 	
 	// https://dev.onedrive.com/items/move.htm
@@ -633,10 +673,10 @@ final class OneDriveApi
 	}
 
 	// https://docs.microsoft.com/en-us/onedrive/developer/rest-api/api/site_search?view=odsp-graph-online
-	JSONValue o365SiteSearch(string o365SharedLibraryName){
+	JSONValue o365SiteSearch(){
 		checkAccessTokenExpired();
 		const(char)[] url;
-		url = siteSearchUrl ~ "=" ~ o365SharedLibraryName;
+		url = siteSearchUrl ~ "=*";
 		return get(url);
 	}
 		
@@ -685,7 +725,14 @@ final class OneDriveApi
 				refreshToken = response["refresh_token"].str();
 				accessTokenExpiration = Clock.currTime() + dur!"seconds"(response["expires_in"].integer());
 				if (!.dryRun) {
-					std.file.write(cfg.refreshTokenFilePath, refreshToken);
+					try {
+						// try and update the refresh_token file
+						std.file.write(cfg.refreshTokenFilePath, refreshToken);
+						cfg.refreshTokenFilePath.setAttributes(cfg.returnRequiredFilePermisions());
+					} catch (FileException e) {
+						// display the error message
+						displayFileSystemErrorMessage(e.msg);
+					}
 				}
 				if (printAccessToken) writeln("New access token: ", accessToken);
 			} else {
@@ -706,6 +753,9 @@ final class OneDriveApi
 			}
 		} catch (OneDriveException e) {
 			if (e.httpStatusCode == 400 || e.httpStatusCode == 401) {
+				// flag error and notify
+				log.errorAndNotify("\nERROR: Refresh token invalid, use --logout to authorize the client again.\n");
+				// set error message
 				e.msg ~= "\nRefresh token invalid, use --logout to authorize the client again";
 			}
 		}
@@ -768,6 +818,8 @@ final class OneDriveApi
 				// close open file
 				file.close();
 			}
+			// Configure the applicable permissions for the file
+			filename.setAttributes(cfg.returnRequiredFilePermisions());
 		}
 		
 		http.method = HTTP.Method.get;
@@ -926,7 +978,8 @@ final class OneDriveApi
 		} else {
 			http.onSend = buf => 0;
 		}
-		return perform();
+		auto response = perform();
+		return response;
 	}
 
 	private JSONValue perform()
@@ -961,8 +1014,8 @@ final class OneDriveApi
 			}
 		} catch (CurlException e) {
 			// Parse and display error message received from OneDrive
+			log.vdebug("onedrive.perform() Generated a OneDrive CurlException");
 			log.error("ERROR: OneDrive returned an error with the following message:");
-			
 			auto errorArray = splitLines(e.msg);
 			string errorMessage = errorArray[0];
 						
@@ -1263,6 +1316,14 @@ final class OneDriveApi
 		if (errorMessage.type() == JSONType.object) {
 			log.error("  Error Reason:  ", errorMessage["error_description"].str);
 		}
+	}
+	
+	// Parse and display error message received from the local file system
+	private void displayFileSystemErrorMessage(string message) 
+	{
+		log.error("ERROR: The local file system returned an error with the following message:");
+		auto errorArray = splitLines(message);
+		log.error("  Error Message: ", errorArray[0]);
 	}
 }
 

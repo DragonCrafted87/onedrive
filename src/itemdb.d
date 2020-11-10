@@ -248,7 +248,7 @@ final class ItemDatabase
 	}
 
 	// same as selectByPath() but it does not traverse remote folders
-	bool selectByPathWithRemote(const(char)[] path, string rootDriveId, out Item item)
+	bool selectByPathWithoutRemote(const(char)[] path, string rootDriveId, out Item item)
 	{
 		Item currItem = { driveId: rootDriveId };
 		
@@ -473,5 +473,12 @@ final class ItemDatabase
 			res.step();
 		}
 		return items;
+	}
+	
+	// Perform a vacuum on the database, commit WAL / SHM to file
+	void performVacuum()
+	{
+		auto stmt = db.prepare("VACUUM;");
+		stmt.exec();
 	}
 }
