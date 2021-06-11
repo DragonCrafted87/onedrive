@@ -1,7 +1,98 @@
 # Changelog
-
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+
+## 2.4.12 - 2021-5-28
+### Fixed
+*   Fix an unhandled Error 412 when uploading modified files to OneDrive Business Accounts
+*   Fix 'sync_list' handling of inclusions when name is included in another folders name
+*   Fix that options --upload-only & --remove-source-files are ignored on an upload session restore
+*   Fix to add file check when adding item to database if using --upload-only --remove-source-files
+*   Fix application crash when SharePoint displayName is being withheld
+
+### Updated
+*   Updated Lock Bot to use GitHub Actions
+*   Updated documentation (various)
+
+## 2.4.11 - 2021-4-07
+### Fixed
+*   Fix support for '/*' regardless of location within sync_list file
+*   Fix 429 response handling correctly check for 'retry-after' response header and use set value
+*   Fix 'sync_list' path handling for sub item matching, so that items in parent are not implicitly matched when there is no wildcard present
+*   Fix --get-O365-drive-id to use 'nextLink' value if present when searching for specific SharePoint site names
+*   Fix OneDrive Business Shared Folder existing name conflict check
+*   Fix incorrect error message 'Item cannot be deleted from OneDrive because it was not found in the local database' when item is actually present
+*   Fix application crash when unable to rename folder structure due to unhandled file-system issue
+*   Fix uploading documents to Shared Business Folders when the shared folder exists on a SharePoint site due to Microsoft Sharepoint 'enrichment' of files
+*   Fix that a file record is kept in database when using --no-remote-delete & --remove-source-files
+
+### Added
+*   Added support in --get-O365-drive-id to provide the 'drive_id' for multiple 'document libraries' within a single Shared Library Site
+
+### Removed
+*   Removed the depreciated config option 'force_http_11' which was flagged as depreciated by PR #549 in v2.3.6 (June 2019)
+
+### Updated
+*   Updated error output of --get-O365-drive-id to provide more details why an error occurred if a SharePoint site lacks the details we need to perform the match
+*   Updated Docker build files for Raspberry Pi to dedicated armhf & aarch64 Dockerfiles
+*   Updated logging output when in --monitor mode, avoid outputting misleading logging when the new or modified item is a file, not a directory
+*   Updated documentation (various)
+
+## 2.4.10 - 2021-2-19
+### Fixed
+*   Catch database assertion when item path cannot be calculated
+*   Fix alpine Docker build so it uses the same golang alpine version
+*   Search all distinct drive id's rather than just default drive id for --get-file-link
+*   Use correct driveId value to query for changes when using --single-directory
+*   Improve upload handling of files for SharePoint sites and detecting when SharePoint modifies the file post upload
+*   Correctly handle '~' when present in 'log_dir' configuration option
+*   Fix logging output when handing downloaded new files
+*   Fix to use correct path offset for sync_list exclusion matching 
+
+### Added
+*   Add upload speed metrics when files are uploaded and clarify that 'data to transfer' is what is needed to be downloaded from OneDrive
+*   Add new config option to rate limit connection to OneDrive
+*   Support new file maximum upload size of 250GB
+*   Support sync_list matching full path root wildcard with exclusions to simplify sync_list configuration
+
+### Updated
+*   Rename Office365.md --> SharePoint-Shared-Libraries.md which better describes this document
+*   Updated Dockerfile config for arm64
+*   Updated documentation (various)
+
+## 2.4.9 - 2020-12-27
+### Fixed
+*   Fix to handle case where API provided deltaLink generates a further API error
+*   Fix application crash when unable to read a local file due to local file permissions
+*   Fix application crash when calculating the path length due to invalid UTF characters in local path
+*   Fix Docker build on Alpine due missing symbols due to using the edge version of ldc and ldc-runtime
+*   Fix application crash with --get-O365-drive-id when API response is restricted
+
+### Added
+*   Add debug log output of the configured URL's which will be used throughout the application to remove any ambiguity as to using incorrect URL's when making API calls
+*   Improve application startup when using --monitor when there is no network connection to the OneDrive API and only initialise application once OneDrive API is reachable
+*   Add Docker environment variable to allow --logout for re-authentication
+
+### Updated
+*   Remove duplicate code for error output functions and enhance error logging output
+*   Updated documentation
+
+## 2.4.8 - 2020-11-30
+### Fixed
+*   Fix to use config set option for 'remove_source_files' and 'skip_dir_strict_match' rather than ignore if set
+*   Fix download failure and crash due to incorrect local filesystem permissions when using mounted external devices
+*   Fix to not change permissions on pre-existing local directories
+*   Fix logging output when authentication authorisation fails to not say authorisation was successful
+*   Fix to check application_id before setting redirect URL when using specific Azure endpoints
+*   Fix application crash in --monitor mode due to 'Failed to stat file' when setgid is used on a directory and data cannot be read
+
+### Added
+*   Added advanced-usage.md to document advaced client usage such as multi account configurations and Windows dual-boot
+
+### Updated
+*   Updated --verbose logging output for config options when set
+*   Updated documentation (man page, USAGE.md, Office365.md, BusinessSharedFolders.md)
+
 ## 2.4.7 - 2020-11-09
 ### Fixed
 *   Fix debugging output for /delta changes available queries

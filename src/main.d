@@ -425,13 +425,14 @@ int main(string[] args)
 	}
 	
 	// sync_dir environment handling to handle ~ expansion properly
+	bool shellEnvSet = false;
 	if ((environment.get("SHELL") == "") && (environment.get("USER") == "")){
 		log.vdebug("sync_dir: No SHELL or USER environment variable configuration detected");
 		// No shell or user set, so expandTilde() will fail - usually headless system running under init.d / systemd or potentially Docker
 		// Does the 'currently configured' sync_dir include a ~
 		if (canFind(cfg.getValueString("sync_dir"), "~")) {
-			// A ~ was found
-			log.vdebug("sync_dir: A '~' was found in sync_dir, using the calculated 'homePath' to replace '~'");
+			// A ~ was found in sync_dir
+			log.vdebug("sync_dir: A '~' was found in sync_dir, using the calculated 'homePath' to replace '~' as no SHELL or USER environment variable set");
 			syncDir = cfg.homePath ~ strip(cfg.getValueString("sync_dir"), "~");
 		} else {
 			// No ~ found in sync_dir, use as is
@@ -440,6 +441,7 @@ int main(string[] args)
 		}
 	} else {
 		// A shell and user is set, expand any ~ as this will be expanded correctly if present
+		shellEnvSet = true;
 		log.vdebug("sync_dir: Getting syncDir from config value sync_dir");
 		if (canFind(cfg.getValueString("sync_dir"), "~")) {
 			log.vdebug("sync_dir: A '~' was found in configured sync_dir, automatically expanding as SHELL and USER environment variable is set");
@@ -452,10 +454,34 @@ int main(string[] args)
 	// vdebug syncDir as set and calculated
 	log.vdebug("syncDir: ", syncDir);
 	
-	// Configure logging if enabled
+	// Configure the logging directory if different from application default
+	// log_dir environment handling to handle ~ expansion properly
+	string logDir = cfg.getValueString("log_dir");
+	if (logDir != cfg.defaultLogFileDir) {
+		// user modified log_dir entry
+		// if 'log_dir' contains a '~' this needs to be expanded correctly
+		if (canFind(cfg.getValueString("log_dir"), "~")) {
+			// ~ needs to be expanded correctly
+			if (!shellEnvSet) {
+				// No shell or user set, so expandTilde() will fail - usually headless system running under init.d / systemd or potentially Docker
+				log.vdebug("log_dir: A '~' was found in log_dir, using the calculated 'homePath' to replace '~' as no SHELL or USER environment variable set");
+				logDir = cfg.homePath ~ strip(cfg.getValueString("log_dir"), "~");
+			} else {
+				// A shell and user is set, expand any ~ as this will be expanded correctly if present
+				log.vdebug("log_dir: A '~' was found in log_dir, using SHELL or USER environment variable to expand '~'");
+				logDir = expandTilde(cfg.getValueString("log_dir"));
+			}
+		} else {
+			// '~' not found in log_dir entry, use as is
+			logDir = cfg.getValueString("log_dir");
+		}
+		// update log_dir with normalised path, with '~' expanded correctly
+		cfg.setValueString("log_dir", logDir);
+	}
+	
+	// Configure logging only if enabled
 	if (cfg.getValueBool("enable_logging")){
-		// Read in a user defined log directory or use the default
-		string logDir = cfg.getValueString("log_dir");
+		// Initialise using the configured logging directory
 		log.vlog("Using logfile dir: ", logDir);
 		log.init(logDir);
 	}
@@ -509,6 +535,9 @@ int main(string[] args)
 		writeln("Config option 'min_notify_changes'     = ", cfg.getValueLong("min_notify_changes"));
 		writeln("Config option 'log_dir'                = ", cfg.getValueString("log_dir"));
 		writeln("Config option 'classify_as_big_delete' = ", cfg.getValueLong("classify_as_big_delete"));
+		writeln("Config option 'upload_only'            = ", cfg.getValueBool("upload_only"));
+		writeln("Config option 'no_remote_delete'       = ", cfg.getValueBool("no_remote_delete"));
+		writeln("Config option 'remove_source_files'    = ", cfg.getValueBool("remove_source_files"));
 		
 		// Is config option drive_id configured?
 		if (cfg.getValueString("drive_id") != ""){
@@ -551,29 +580,73 @@ int main(string[] args)
 		return EXIT_SUCCESS;
 	}
 	
-	// If the user is still using --force-http-1.1 advise its no longer required
-	if (cfg.getValueBool("force_http_11")) {
-		log.log("NOTE: The use of --force-http-1.1 is depreciated");
-	}
-	
-	// Test if OneDrive service can be reached
+	// Test if OneDrive service can be reached, exit if it cant be reached
 	log.vdebug("Testing network to ensure network connectivity to Microsoft OneDrive Service");
-	try {
-		online = testNetwork();
-	} catch (CurlException e) {
-		// No network connection to OneDrive Service
-		log.error("Cannot connect to Microsoft OneDrive Service");
-		log.error("Reason: ", e.msg);
+	online = testNetwork();
+	if (!online) {
+	// Cant initialise the API as we are not online
 		if (!cfg.getValueBool("monitor")) {
+			// Running as --synchronize
+			log.error("Unable to reach Microsoft OneDrive API service, unable to initialize application\n");
 			return EXIT_FAILURE;
+		} else {
+			// Running as --monitor
+			log.error("Unable to reach Microsoft OneDrive API service at this point in time, re-trying network tests\n");
+			
+			// re-try network connection to OneDrive
+			// https://github.com/abraunegg/onedrive/issues/1184
+			// Back off & retry with incremental delay
+			int retryCount = 10000;
+			int retryAttempts = 1;
+			int backoffInterval = 1;
+			int maxBackoffInterval = 3600;
+			
+			bool retrySuccess = false;
+			while (!retrySuccess){
+				// retry to access OneDrive API
+				backoffInterval++;
+				int thisBackOffInterval = retryAttempts*backoffInterval;
+				log.vdebug("  Retry Attempt:      ", retryAttempts);				
+				if (thisBackOffInterval <= maxBackoffInterval) {
+					log.vdebug("  Retry In (seconds): ", thisBackOffInterval);
+					Thread.sleep(dur!"seconds"(thisBackOffInterval));
+				} else {
+					log.vdebug("  Retry In (seconds): ", maxBackoffInterval);
+					Thread.sleep(dur!"seconds"(maxBackoffInterval));
+				}
+				// perform the re-rty
+				online = testNetwork();
+				if (online) {
+					// We are now online
+					log.log("Internet connectivity to Microsoft OneDrive service has been restored");
+					retrySuccess = true;
+				} else {
+					// We are still offline
+					if (retryAttempts == retryCount) {
+						// we have attempted to re-connect X number of times
+						// false set this to true to break out of while loop
+						retrySuccess = true;
+					}	
+				}
+				// Increment & loop around
+				retryAttempts++;
+			}
+			if (!online) {
+				// Not online after 1.2 years of trying
+				log.error("ERROR: Was unable to reconnect to the Microsoft OneDrive service after 10000 attempts lasting over 1.2 years!");
+				return EXIT_FAILURE;
+			}
 		}
 	}
 	
 	// Initialize OneDrive, check for authorization
-	log.vlog("Initializing the OneDrive API ...");
-	oneDrive = new OneDriveApi(cfg);
-	onedriveInitialised = oneDrive.init();
-	oneDrive.printAccessToken = cfg.getValueBool("print_token");
+	if (online) {
+		// we can only initialise if we are online
+		log.vlog("Initializing the OneDrive API ...");
+		oneDrive = new OneDriveApi(cfg);
+		onedriveInitialised = oneDrive.init();
+		oneDrive.printAccessToken = cfg.getValueBool("print_token");
+	}
 	
 	if (!onedriveInitialised) {
 		log.error("Could not initialize the OneDrive API");
@@ -597,10 +670,17 @@ int main(string[] args)
 		// was the application just authorised?
 		if (cfg.applicationAuthorizeResponseUri) {
 			// Application was just authorised
-			log.log("\nApplication has been successfully authorised, however no additional command switches were provided.\n");
-			log.log("Please use --help for further assistance in regards to running this application.\n");
-			// Use exit scopes to shutdown API
-			return EXIT_SUCCESS;
+			if (exists(cfg.refreshTokenFilePath)) {
+				// OneDrive refresh token exists
+				log.log("\nApplication has been successfully authorised, however no additional command switches were provided.\n");
+				log.log("Please use --help for further assistance in regards to running this application.\n");
+				// Use exit scopes to shutdown API
+				return EXIT_SUCCESS;
+			} else {
+				// we just authorised, but refresh_token does not exist .. probably an auth error
+				log.log("\nApplication has not been successfully authorised. Please check your URI response entry and try again.\n");
+				return EXIT_FAILURE;
+			}
 		} else {
 			// Application was not just authorised
 			log.log("\n--synchronize or --monitor switches missing from your command line input. Please add one (not both) of these switches to your command line or use --help for further assistance.\n");
@@ -655,6 +735,7 @@ int main(string[] args)
 			// Attempt to create the sync dir we have been configured with
 			mkdirRecurse(syncDir);
 			// Configure the applicable permissions for the folder
+			log.vdebug("Setting directory permissions for: ", syncDir);
 			syncDir.setAttributes(cfg.returnRequiredDirectoryPermisions());
 		} catch (std.file.FileException e) {
 			// Creating the sync directory failed
@@ -765,14 +846,18 @@ int main(string[] args)
 	// Do we need to configure specific --upload-only options?
 	if (cfg.getValueBool("upload_only")) {
 		// --upload-only was passed in or configured
+		log.vdebug("Configuring uploadOnly flag to TRUE as --upload-only passed in or configured");
+		sync.setUploadOnly();
 		// was --no-remote-delete passed in or configured
 		if (cfg.getValueBool("no_remote_delete")) {
 			// Configure the noRemoteDelete flag
+			log.vdebug("Configuring noRemoteDelete flag to TRUE as --no-remote-delete passed in or configured");
 			sync.setNoRemoteDelete();
 		}
 		// was --remove-source-files passed in or configured
 		if (cfg.getValueBool("remove_source_files")) {
 			// Configure the localDeleteAfterUpload flag
+			log.vdebug("Configuring localDeleteAfterUpload flag to TRUE as --remove-source-files passed in or configured");
 			sync.setLocalDeleteAfterUpload();
 		}
 	}
@@ -906,6 +991,7 @@ int main(string[] args)
 						string singleDirectoryPath = cfg.getValueString("single_directory");
 						mkdirRecurse(singleDirectoryPath);
 						// Configure the applicable permissions for the folder
+						log.vdebug("Setting directory permissions for: ", singleDirectoryPath);
 						singleDirectoryPath.setAttributes(cfg.returnRequiredDirectoryPermisions());
 					}
 				}
@@ -957,7 +1043,7 @@ int main(string[] args)
 					log.vlog("Offline, cannot delete item!");
 				} catch(SyncException e) {
 					if (e.msg == "The item to delete is not in the local database") {
-						log.vlog("Item cannot be deleted from OneDrive because not found in the local database");
+						log.vlog("Item cannot be deleted from OneDrive because it was not found in the local database");
 					} else {
 						log.logAndNotify("Cannot delete remote item: ", e.msg);
 					}

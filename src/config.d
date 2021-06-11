@@ -10,6 +10,7 @@ final class Config
 	public string defaultSyncDir = "~/OneDrive";
 	public string defaultSkipFile = "~*|.~*|*.tmp";
 	public string defaultSkipDir = "";
+	public string defaultLogFileDir = "/var/log/onedrive/";
 	// application set items
 	public string refreshTokenFilePath = "";
 	public string deltaLinkFilePath = "";
@@ -50,7 +51,7 @@ final class Config
 		stringValues["sync_dir"] = defaultSyncDir;
 		stringValues["skip_file"] = defaultSkipFile;
 		stringValues["skip_dir"] = defaultSkipDir;
-		stringValues["log_dir"] = "/var/log/onedrive/";
+		stringValues["log_dir"] = defaultLogFileDir;
 		stringValues["drive_id"] = "";
 		stringValues["user_agent"] = "";
 		boolValues["upload_only"] = false;
@@ -60,7 +61,6 @@ final class Config
 		boolValues["disable_notifications"] = false;
 		boolValues["disable_upload_validation"] = false;
 		boolValues["enable_logging"] = false;
-		boolValues["force_http_11"] = false;
 		boolValues["force_http_2"] = false;
 		boolValues["local_first"] = false;
 		boolValues["no_remote_delete"] = false;
@@ -116,6 +116,8 @@ final class Config
 		longValues["sync_dir_permissions"] = defaultDirectoryPermissionMode;
 		// Configure the default file permission attributes for newly created file
 		longValues["sync_file_permissions"] = defaultFilePermissionMode;
+		// Configure download / upload rate limits
+		longValues["rate_limit"] = 0;
 		
 		// DEVELOPER OPTIONS 
 		// display_memory = true | false
@@ -282,8 +284,6 @@ final class Config
 		boolValues["monitor"]             = false;
 		boolValues["synchronize"]         = false;
 		boolValues["force"]               = false;
-		boolValues["remove_source_files"] = false;
-		boolValues["skip_dir_strict_match"] = false;
 		boolValues["list_business_shared_folders"] = false;
 		
 		// Application Startup option validation
@@ -342,9 +342,6 @@ final class Config
 				"enable-logging",
 					"Enable client activity to a separate log file",
 					&boolValues["enable_logging"],
-				"force-http-1.1",
-					"Force the use of HTTP/1.1 for all operations (DEPRECIATED)",
-					&boolValues["force_http_11"],
 				"force-http-2",
 					"Force the use of HTTP/2 for all operations where applicable",
 					&boolValues["force_http_2"],
